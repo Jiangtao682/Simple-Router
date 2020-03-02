@@ -122,6 +122,11 @@ public:
 
   ~ArpCache();
 
+  void
+  handleArpRequest(std::shared_ptr<ArpRequest> req, bool &isRemoved);
+
+  void
+  sendPendingPackets(struct arp_hdr &reply_arp_hdr, uint32_t dst_ip);
   /**
    * IMPLEMENT THIS METHOD
    *

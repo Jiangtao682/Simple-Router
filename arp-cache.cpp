@@ -27,12 +27,141 @@ namespace simple_router {
 //////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////
 // IMPLEMENT THIS METHOD
+
+
+void
+ArpCache::sendPendingPackets(struct arp_hdr &reply_arp_hdr, uint32_t dst_ip)
+{
+  //find the corresponding request
+  std::shared_ptr<ArpRequest> request = nullptr;
+  for(const auto& entry : m_arpRequests)
+  {
+    if(entry->ip == dst_ip)
+    {
+      request = entry;
+      break;
+    }
+  }
+  
+  if(request != nullptr)
+  {
+    for(const auto& pendingPacket: request->packets)
+    {
+      int packet_size = pendingPacket.packet.size();
+      Buffer sendpacket (packet_size,0);
+      struct ethernet_hdr eth_hdr;
+      memcpy(eth_hdr.ether_dhost, &reply_arp_hdr.arp_sha[0], ETHER_ADDR_LEN);
+      memcpy(eth_hdr.ether_shost, &reply_arp_hdr.arp_tha[0], ETHER_ADDR_LEN);
+      eth_hdr.ether_type = htons(0x0800);
+      //Assemble packet
+      memcpy(&sendpacket[0], &eth_hdr, sizeof(eth_hdr));
+      memcpy(&sendpacket[14], &pendingPacket.packet[14], packet_size - sizeof(eth_hdr));
+      std::string interfaceName = m_router.getRoutingTable().lookup(dst_ip).ifName;
+      const Interface* sendInterface = m_router.findIfaceByName(interfaceName);
+      m_router.sendPacket(sendpacket, sendInterface->name);
+
+      printf("=====Pending packets sent=====\n");
+      std::cout << "Interface:" << sendInterface->name << std::endl;
+      print_hdrs(sendpacket);
+      printf("=============================\n");
+    }
+      m_arpRequests.remove(request);
+    //removeRequest(request);
+  }
+}
+
+
+void
+ArpCache::handleArpRequest(std::shared_ptr<ArpRequest> req, bool &isRemoved)
+{
+  printf("In handleArpRequest\n");
+  if(steady_clock::now() - req->timeSent > seconds(1))
+  {
+    if(req->nTimesSent >= MAX_SENT_TIME)//reqeust time out(After 5 times retransmission)
+    {
+      printf("TimesSent:%d\n", req->nTimesSent);
+      printf("~~~~~~~~~~~~~Remove the request\n");
+      //send icmp host unreachable to source addr of all pkts waiting
+      /*That's an extra credit, leave for later*/
+      m_arpRequests.remove(req);
+      isRemoved = true;
+      return;
+      //printf("Size:%d", m_arpRequests.size());
+      //removeRequest(req);
+      //printf("Request removed\n");
+    }
+    else//send arp request
+    {
+      struct arp_hdr arp_header;
+      struct ethernet_hdr eth_header;
+      Buffer request_packet (42,0); //Sending packet
+
+      //const Interface* sendInterface = m_router.findIfaceByIp(req->ip);
+      //get the interface
+      std::string interfaceName = m_router.getRoutingTable().lookup(req->ip).ifName;
+      const Interface* sendInterface = m_router.findIfaceByName(interfaceName);
+
+      //Ethernet Frame 
+      memset(eth_header.ether_dhost, 255, ETHER_ADDR_LEN);//Broadcast
+      memcpy(eth_header.ether_shost, &sendInterface->addr[0], ETHER_ADDR_LEN);
+      //memset(&eth_header.ether_type, htons(0x0806),sizeof(eth_header.ether_type));
+      eth_header.ether_type = htons(0x0806);
+      printf("Assembled Ethernet\n");
+      print_hdr_eth((uint8_t*)&eth_header);
+      
+      //Arp header
+      arp_header.arp_hrd = htons(0x0001);
+      arp_header.arp_pro = htons(0x0800);
+      arp_header.arp_hln = 6;
+      arp_header.arp_pln = 4;
+      arp_header.arp_op = htons(0x0001);
+      memcpy(arp_header.arp_sha, &sendInterface->addr[0], ETHER_ADDR_LEN);
+      memcpy(&arp_header.arp_sip, &sendInterface->ip, sizeof(arp_header.arp_sip));
+      memset(arp_header.arp_tha, 255, ETHER_ADDR_LEN);
+      memcpy(&arp_header.arp_tip, &req->ip, sizeof(arp_header.arp_tip));
+      printf("Assembled Arp\n");
+      print_hdr_arp((uint8_t*)&arp_header);
+
+      //Assemble to packet and send
+      memcpy(&request_packet[0], &eth_header, sizeof(eth_header));
+      memcpy(&request_packet[14], &arp_header, sizeof(arp_header));
+      m_router.sendPacket(request_packet, sendInterface->name);
+
+      printf("================Sent Arp reqeust==================\n");
+      std::cout << "Interface:" << sendInterface->name << std::endl; 
+      print_hdrs(request_packet);
+      printf("===============================================\n");
+      req->timeSent = steady_clock::now();
+      req->nTimesSent++;
+    }
+  }
+}
+
 void
 ArpCache::periodicCheckArpRequestsAndCacheEntries()
 {
+  bool isRemoved = false;
+  std::vector<std::shared_ptr<ArpEntry>> recordForRemoval;
+      for(const auto& req: m_arpRequests)
+        {
+          handleArpRequest(req, isRemoved);
+          if(isRemoved) //Avoid segfault
+            break;
+        }
+  //Find timeout cache
+  for(const auto& entry: m_cacheEntries)
+    {
+      if(!(entry->isValid))
+        {
+          // m_cacheEntries.remove(entry);
+          recordForRemoval.push_back(entry);
+        }
+    }
 
-  // FILL THIS IN
-
+  for(const auto& entry: recordForRemoval)
+    {
+      m_cacheEntries.remove(entry);
+    }
 }
 //////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////

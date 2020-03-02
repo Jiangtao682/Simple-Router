@@ -43,6 +43,67 @@ public:
   void
   handlePacket(const Buffer& packet, const std::string& inIface);
 
+  void 
+  dispachEthernetHeader(const Buffer &packet, struct ethernet_hdr &ether_hdr)
+  {
+    memcpy(&ether_hdr, &packet[0], sizeof(ether_hdr));
+  }
+  
+  void 
+  getArpPacket(const Buffer &packet, struct arp_hdr &arp_header)
+  {
+    memcpy(&arp_header, &packet[14], sizeof(arp_header));
+  }
+
+  void 
+  getIpPacket(const Buffer &packet, struct ip_hdr &ip_header)
+  {
+    memcpy(&ip_header, &packet[14], sizeof(ip_header));
+  }
+
+  void 
+  getIcmpPacket(const Buffer &packet, struct icmp_hdr &icmp_header)
+  {
+    memcpy(&icmp_header, &packet[34], sizeof(icmp_header));
+  }
+  
+  void 
+  assembleArpInterfaceReplyPacket(Buffer &replyPacket, struct ethernet_hdr e_hdr, struct arp_hdr arp_header)
+  {
+    const Interface* myInterface = findIfaceByIp(arp_header.arp_tip);
+
+    memcpy(e_hdr.ether_dhost, e_hdr.ether_shost, sizeof(e_hdr.ether_shost));
+    memcpy(e_hdr.ether_shost, &myInterface->addr[0], sizeof(e_hdr.ether_shost));
+
+    arp_header.arp_op = htons(0x0002);
+    
+    memcpy(&arp_header.arp_tip, &arp_header.arp_sip, sizeof(arp_header.arp_tip));
+    memcpy(&arp_header.arp_tha, &arp_header.arp_sha, sizeof(arp_header.arp_tha));
+    memcpy(&arp_header.arp_sip, &myInterface->ip, sizeof(arp_header.arp_tip));
+    memcpy(arp_header.arp_sha, &myInterface->addr[0], sizeof(arp_header.arp_sha));
+
+    replyPacket = std::vector<unsigned char>(42, 0);
+    memcpy(&replyPacket[0], &e_hdr, sizeof(e_hdr));
+    memcpy(&replyPacket[14], &arp_header, sizeof(arp_header));
+  }
+
+
+  void 
+  assembleIPPacket(Buffer &replyPacket, struct ip_hdr ip_header, struct ethernet_hdr e_hdr)
+  {
+      memcpy(&replyPacket[0], &e_hdr, sizeof(e_hdr)); //attached new ethernet header
+      memcpy(&replyPacket[14], &ip_header, sizeof(ip_header)); //attached new ip header
+  }
+
+  void 
+  handleIcmpPacket(const Buffer &packet, struct ethernet_hdr &e_hdr, int time_exceed);
+
+  void 
+  handleArpPacket(const Buffer &packet, struct ethernet_hdr &ether_hdr);
+
+  void 
+  handleIpPacket(const Buffer &packet, struct ethernet_hdr &ether_hdr);
+
   /**
    * USE THIS METHOD TO SEND PACKETS
    *
