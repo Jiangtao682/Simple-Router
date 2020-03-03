@@ -34,16 +34,17 @@ RoutingTable::lookup(uint32_t ip) const
   // create this longest match pointer
   const RoutingTableEntry *longestmatch = NULL;
  
-  if (!m_entries.empty()){ //check whether the list is empty
-      for(std::list<RoutingTableEntry>::const_iterator it = m_entries.begin(); it != m_entries.end(); ++it) {
-        uint32_t ipmasked = ip & it->mask;
-        uint32_t matchagainst = it->dest & it->mask;
-        //std::cout << "ip is:" << ipToString(it->dest) <<std::endl;
-        if (ipmasked == matchagainst){
-            if (longestmatch == NULL || (it->mask >= longestmatch->mask))
-                longestmatch = &*it;
-        }
+  if (!m_entries.empty())
+  { //check whether the list is empty
+    for(std::list<RoutingTableEntry>::const_iterator it = m_entries.begin(); it != m_entries.end(); ++it) {
+      uint32_t ipmasked = ip & it->mask;
+      uint32_t matchagainst = it->dest & it->mask;
+      //std::cout << "ip is:" << ipToString(it->dest) <<std::endl;
+      if (ipmasked == matchagainst){
+          if (longestmatch == NULL || (it->mask >= longestmatch->mask))
+              longestmatch = &*it;
       }
+    }
   }
   if (longestmatch == NULL)
     throw std::runtime_error("Routing entry not found");
