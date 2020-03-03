@@ -291,8 +291,8 @@ else  // Do not have ICMP message, time exceeded or dest port unreachable
   const Interface* myInterface = findIfaceByMac(my_mac_addr); 
   uint32_t temp_src_ip;
   temp_src_ip = temp_ip_hdr.ip_src;
-  // temp_ip_hdr.ip_src = myInterface->ip;
-  temp_ip_hdr.ip_src = temp_ip_hdr.ip_dst;
+  temp_ip_hdr.ip_src = myInterface->ip;
+  // temp_ip_hdr.ip_src = temp_ip_hdr.ip_dst;
   temp_ip_hdr.ip_dst = temp_src_ip;
   temp_ip_hdr.ip_p = ip_protocol_icmp;
   temp_ip_hdr.ip_ttl = 0x40;
