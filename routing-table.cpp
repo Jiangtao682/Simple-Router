@@ -36,7 +36,8 @@ RoutingTable::lookup(uint32_t ip) const
  
   if (!m_entries.empty())
   { //check whether the list is empty
-    for(std::list<RoutingTableEntry>::const_iterator it = m_entries.begin(); it != m_entries.end(); ++it) {
+    for(std::list<RoutingTableEntry>::const_iterator it = m_entries.begin(); it != m_entries.end(); ++it) 
+    {
       uint32_t ipmasked = ip & it->mask;
       uint32_t matchagainst = it->dest & it->mask;
       //std::cout << "ip is:" << ipToString(it->dest) <<std::endl;
