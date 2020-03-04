@@ -86,9 +86,9 @@ void SimpleRouter::handleArpPacket(const Buffer &packet, struct ethernet_hdr &et
     std::shared_ptr<simple_router::ArpEntry> lookup = NULL;
     lookup = m_arp.lookup(arp_packet.arp_sip);//check ARP cache, if already there, discard else record mapping  
     if (lookup == NULL){ //not found the mapping in cache 
-      Buffer source_ip = std::vector<unsigned char>(6, 0);
-      memcpy(&source_ip[0], &packet[6], ETHER_ADDR_LEN);
-      m_arp.insertArpEntry(source_ip,arp_packet.arp_sip);
+      Buffer source_mac_addr = std::vector<unsigned char>(6, 0);
+      memcpy(&source_mac_addr[0], &packet[6], ETHER_ADDR_LEN);
+      m_arp.insertArpEntry(source_mac_addr,arp_packet.arp_sip);
       
       //It will remove the request after sending all packets
       m_arp.sendPendingPackets(arp_packet, arp_packet.arp_sip);
