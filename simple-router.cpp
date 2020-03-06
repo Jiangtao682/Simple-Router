@@ -206,7 +206,6 @@ SimpleRouter::assembleArpRequestPacket(Buffer &request_packet, const Interface* 
 }
 
 
-
 void 
 SimpleRouter::handleIcmpPacket(const Buffer &packet, struct ethernet_hdr &e_hdr, int time_exceed)
 {
