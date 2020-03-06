@@ -26,53 +26,52 @@ namespace simple_router {
 
 //////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////
-// IMPLEMENT THIS METHOD
+// IMPLEMENT THIS METHOD 
+// modified by yunhaj47
 void
 ArpCache::periodicCheckArpRequestsAndCacheEntries()
 {
-  for (const auto& req : m_arpRequests) 
+  bool reqRmFlag = false;
+  for (const auto& req_it : m_arpRequests) 
   {
-    handle_arpreq(req);
+    handle_arpreq(req_it, reqRmFlag);
+    if(reqRmFlag) break;
   }
 
   std::vector<std::shared_ptr<ArpEntry>> arp_cache_tobe_removed;
-  for (const auto& entry : m_cacheEntries) 
+  for (const auto& entry_it : m_cacheEntries) 
   { // entry is of type ArpEntry
-    if (!(entry->isValid)) 
-    {
-      arp_cache_tobe_removed.push_back(entry);
-    }
+    if (!(entry_it->isValid)) arp_cache_tobe_removed.push_back(entry_it);
   }
 
-  for (const auto& entry : arp_cache_tobe_removed) 
+  for (const auto& entry_it : arp_cache_tobe_removed) 
   {
-    m_cacheEntries.remove(entry);
+    m_cacheEntries.remove(entry_it);
   }
 
   // FILL THIS IN
+
 }
 
-
 void
-ArpCache::sendPendingPackets(struct arp_hdr &reply_arp_hdr, uint32_t dst_ip)
+ArpCache::send_queuing_packets(struct arp_hdr &reply_arp_hdr, uint32_t dst_ip)
 {
   //find the corresponding request
-  std::shared_ptr<ArpRequest> request = nullptr;
-  for(const auto& entry : m_arpRequests)
+  std::shared_ptr<ArpRequest> req = nullptr;
+  for(const auto& req_it : m_arpRequests)
   {
-      if(entry->ip == dst_ip)
+      if(req_it->ip == dst_ip)
       {
-          request = entry;
+          req = req_it;
           break;
       }
   }
   
-  if(request != nullptr)
+  if(req != nullptr)
   {
-    for(const auto& pendingPacket: request->packets)
+    for(const auto& queuing_packet: req->packets)
     {
-      int packet_size = pendingPacket.packet.size();
-      // Buffer sendpacket (packet_size,0);
+      int packet_size = queuing_packet.packet.size();
       Buffer temp_packet = std::vector<unsigned char>(packet_size, 0);
       struct ethernet_hdr eth_hdr;
       // swap the src and dest IP addr in the ETHERNET header
@@ -81,34 +80,27 @@ ArpCache::sendPendingPackets(struct arp_hdr &reply_arp_hdr, uint32_t dst_ip)
       eth_hdr.ether_type = htons(0x0800);
       //Assemble packet
       memcpy(&temp_packet[0], &eth_hdr, sizeof(eth_hdr));
-      memcpy(&temp_packet[14], &pendingPacket.packet[14], packet_size - sizeof(eth_hdr));
+      memcpy(&temp_packet[14], &queuing_packet.packet[14], packet_size - sizeof(eth_hdr));
       std::string outgoing_iface_name = m_router.getRoutingTable().lookup(dst_ip).ifName;
+
       const Interface* sendInterface = m_router.findIfaceByName(outgoing_iface_name);
       m_router.sendPacket(temp_packet, sendInterface->name);
-      // std::cout << "Pending packets sent from Interface:" << sendInterface->name << std::endl;
-      // print_hdrs(temp_packet);
     }
-    ArpCache::removeRequest(request);
+    m_arpRequests.remove(req);
+
   }
 }
 
-
 void
-// ArpCache::handle_arpreq(std::shared_ptr<ArpRequest> req, bool &isRemoved) 
-ArpCache::handle_arpreq(std::shared_ptr<ArpRequest> req) 
+ArpCache::handle_arpreq(std::shared_ptr<ArpRequest> req, bool &reqRmFlag) 
 {
-  printf("In handle_arpreq\n");
   if(steady_clock::now() - req->timeSent > seconds(1))
   {
     if(req->nTimesSent >= MAX_SENT_TIME)//reqeust time out(After 5 times retransmission)
     {
-      printf("TimesSent:%d\n", req->nTimesSent);
-      std::cout << "Remove the request" << std::endl;
-      //send icmp host unreachable to source addr of all pkts waiting
-      /*That's an extra credit, leave for later*/
-      // m_arpRequests.remove(req);
-      ArpCache::removeRequest(req);
-      // isRemoved = true;
+      printf("##############    Remove the request   ##############\n");
+      m_arpRequests.remove(req);
+      reqRmFlag = true;
       return;
 
     }
@@ -120,16 +112,18 @@ ArpCache::handle_arpreq(std::shared_ptr<ArpRequest> req)
 
       //get the interface
       std::string outgoing_iface_name = m_router.getRoutingTable().lookup(req->ip).ifName;
-      const Interface* sendInterface = m_router.findIfaceByName(outgoing_iface_name);   // outgoing interface mac address
-      m_router.assembleArpRequestPacket(request_packet, sendInterface, req->ip);
-      m_router.sendPacket(request_packet, sendInterface->name);
+      const Interface* outgoing_interface = m_router.findIfaceByName(outgoing_iface_name);   // outgoing interface mac address
 
-      std::cout << "Send ARP request again from Interface:" << sendInterface->name << std::endl;
-      // print_hdrs(request_packet);
+      m_router.assembleArpRequestPacket(request_packet, outgoing_interface, req->ip);
+      m_router.sendPacket(request_packet, outgoing_interface->name);
+
+      printf("Sent Arp reqeust\n");
+      std::cout << "outgoing Interface:" << outgoing_interface->name << std::endl; 
       req->timeSent = steady_clock::now();
       req->nTimesSent++;
     }
   }
+
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -150,7 +144,7 @@ ArpCache::~ArpCache()
   m_tickerThread.join();
 }
 
-std::shared_ptr<ArpEntry>
+std::shared_ptr<ArpEntry> // 用于查找该IP地址是否在 ARP table 中
 ArpCache::lookup(uint32_t ip)
 {
   std::lock_guard<std::mutex> lock(m_mutex);
@@ -185,7 +179,7 @@ ArpCache::queueRequest(uint32_t ip, const Buffer& packet, const std::string& ifa
 void
 ArpCache::removeRequest(const std::shared_ptr<ArpRequest>& entry)
 {
-  std::lock_guard<std::mutex> lock(m_mutex);
+  std::lock_guard<std::mutex> lock(m_mutex); /////////////////////
   m_arpRequests.remove(entry);
 }
 
@@ -249,15 +243,16 @@ operator<<(std::ostream& os, const ArpCache& cache)
 {
   std::lock_guard<std::mutex> lock(cache.m_mutex);
 
-  os << "\nMAC            IP         AGE                       VALID\n"
+  os << "\nMAC                     IP              AGE         VALID\n"
      << "-----------------------------------------------------------\n";
 
   auto now = steady_clock::now();
   for (const auto& entry : cache.m_cacheEntries) {
 
     os << macToString(entry->mac) << "   "
-       << ipToString(entry->ip) << "   "
-       << std::chrono::duration_cast<seconds>((now - entry->timeAdded)).count() << " seconds   "
+       << ipToString(entry->ip) << "       "
+       << std::chrono::duration_cast<seconds>((now - entry->timeAdded)).count() << " seconds "
+       << "       " 
        << entry->isValid
        << "\n";
   }

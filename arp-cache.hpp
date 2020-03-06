@@ -109,7 +109,6 @@ struct ArpRequest {
   std::list<PendingPacket> packets;
 };
 
-
 struct ArpEntry {
   Buffer mac;
   uint32_t ip = 0; //< IP addr in network byte order
@@ -123,11 +122,6 @@ public:
 
   ~ArpCache();
 
-  void
-  handle_arpreq(std::shared_ptr<ArpRequest> request);
-
-  void
-  sendPendingPackets(struct arp_hdr &reply_arp_hdr, uint32_t dst_ip);
   /**
    * IMPLEMENT THIS METHOD
    *
@@ -146,6 +140,12 @@ public:
    */
   void
   periodicCheckArpRequestsAndCacheEntries();
+  
+  void
+  send_queuing_packets(struct arp_hdr &reply_arp_hdr, uint32_t dst_ip);
+
+  void
+  handle_arpreq(std::shared_ptr<ArpRequest> request, bool &isRemoved);
 
   /**
    * Checks if an IP->MAC mapping is in the cache. IP is in network byte order.
@@ -208,7 +208,7 @@ private:
 
   std::list<std::shared_ptr<ArpEntry>> m_cacheEntries;
   std::list<std::shared_ptr<ArpRequest>> m_arpRequests;
-
+  
   volatile bool m_shouldStop;
   std::thread m_tickerThread;
   mutable std::mutex m_mutex;

@@ -36,7 +36,9 @@ SimpleRouter::handlePacket(const Buffer& packet, const std::string& inIface)
   }
   // std::cerr << getRoutingTable() << std::endl;
   // std::cerr << "test point 1" << std::endl;
+  printf("test point 1\n");
   std::cerr << getArp() << std::endl;
+  printf("test point2\n");
   // printIfaces(std::cout);
   dispachEthernetHeader(packet, ethernet_header); // get ethernet_header
   // print_hdrs(packet);
@@ -87,7 +89,7 @@ void SimpleRouter::handleArpPacket(const Buffer &packet, struct ethernet_hdr &et
       Buffer source_mac_addr = std::vector<unsigned char>(6, 0);
       memcpy(&source_mac_addr[0], &packet[6], ETHER_ADDR_LEN);
       m_arp.insertArpEntry(source_mac_addr,arp_header.arp_sip);
-      m_arp.sendPendingPackets(arp_header, arp_header.arp_sip); //after sending packets the request will be removed
+      m_arp.send_queuing_packets(arp_header, arp_header.arp_sip); //after sending packets the request will be removed
     }
     else 
         printf("ARP reply already in cache, drop this arp packet\n");
@@ -184,7 +186,6 @@ SimpleRouter::assembleArpRequestPacket(Buffer &request_packet, const Interface* 
   memset(eth_header.ether_dhost, 255, ETHER_ADDR_LEN); //Broadcast
   memcpy(eth_header.ether_shost, &sendIface->addr[0], ETHER_ADDR_LEN);
   eth_header.ether_type = htons(ethertype_arp);
-  printf("Assembled Ethernet\n");
   // print_hdr_eth((uint8_t*)&eth_header);
 
   //Arp header
@@ -197,7 +198,6 @@ SimpleRouter::assembleArpRequestPacket(Buffer &request_packet, const Interface* 
   memcpy(&arp_header.arp_sip, &sendIface->ip, sizeof(arp_header.arp_sip));
   memset(arp_header.arp_tha, 255, ETHER_ADDR_LEN);
   memcpy(&arp_header.arp_tip, &dest_ip, sizeof(arp_header.arp_tip));
-  printf("Assembled Arp\n");
   // print_hdr_arp((uint8_t*)&arp_header);
 
   //Assemble to packet and send
