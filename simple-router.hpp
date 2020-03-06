@@ -68,19 +68,19 @@ public:
   }
   
   void 
-  assembleArpInterfaceReplyPacket(Buffer &replyPacket, struct ethernet_hdr e_hdr, struct arp_hdr arp_header)
+  assembleArpReplyPacket(Buffer &replyPacket, struct ethernet_hdr e_hdr, struct arp_hdr arp_header)
   {
-    const Interface* myInterface = findIfaceByIp(arp_header.arp_tip);
+    const Interface* router_Interface = findIfaceByIp(arp_header.arp_tip);
 
     memcpy(e_hdr.ether_dhost, e_hdr.ether_shost, sizeof(e_hdr.ether_shost));
-    memcpy(e_hdr.ether_shost, &myInterface->addr[0], sizeof(e_hdr.ether_shost));
+    memcpy(e_hdr.ether_shost, &router_Interface->addr[0], sizeof(e_hdr.ether_shost));
 
     arp_header.arp_op = htons(0x0002);
     
     memcpy(&arp_header.arp_tip, &arp_header.arp_sip, sizeof(arp_header.arp_tip));
     memcpy(&arp_header.arp_tha, &arp_header.arp_sha, sizeof(arp_header.arp_tha));
-    memcpy(&arp_header.arp_sip, &myInterface->ip, sizeof(arp_header.arp_tip));
-    memcpy(arp_header.arp_sha, &myInterface->addr[0], sizeof(arp_header.arp_sha));
+    memcpy(&arp_header.arp_sip, &router_Interface->ip, sizeof(arp_header.arp_tip));
+    memcpy(arp_header.arp_sha, &router_Interface->addr[0], sizeof(arp_header.arp_sha));
 
     replyPacket = std::vector<unsigned char>(42, 0);
     memcpy(&replyPacket[0], &e_hdr, sizeof(e_hdr));
@@ -95,6 +95,10 @@ public:
       memcpy(&replyPacket[14], &ip_header, sizeof(ip_header)); //attached new ip header
   }
 
+
+  void 
+  assembleArpRequestPacket(Buffer &request_packet, const Interface* &sendIface, uint32_t &dest_ip);
+  
   void 
   handleIcmpPacket(const Buffer &packet, struct ethernet_hdr &e_hdr, int time_exceed);
 

@@ -109,6 +109,7 @@ struct ArpRequest {
   std::list<PendingPacket> packets;
 };
 
+
 struct ArpEntry {
   Buffer mac;
   uint32_t ip = 0; //< IP addr in network byte order
@@ -123,7 +124,7 @@ public:
   ~ArpCache();
 
   void
-  handleArpRequest(std::shared_ptr<ArpRequest> req, bool &isRemoved);
+  handle_arpreq(std::shared_ptr<ArpRequest> request);
 
   void
   sendPendingPackets(struct arp_hdr &reply_arp_hdr, uint32_t dst_ip);

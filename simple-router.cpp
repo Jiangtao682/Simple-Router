@@ -34,13 +34,12 @@ SimpleRouter::handlePacket(const Buffer& packet, const std::string& inIface)
     std::cerr << "Received packet, but interface is unknown, ignoring" << std::endl;
     return;
   }
-
-  std::cerr << getRoutingTable() << std::endl;
-  std::cerr << "test point 1" << std::endl;
+  // std::cerr << getRoutingTable() << std::endl;
+  // std::cerr << "test point 1" << std::endl;
   std::cerr << getArp() << std::endl;
-  printIfaces(std::cout);
+  // printIfaces(std::cout);
   dispachEthernetHeader(packet, ethernet_header); // get ethernet_header
-  print_hdrs(packet);
+  // print_hdrs(packet);
 
   if(ethernet_header.ether_type == htons(ethertype_arp))
   {
@@ -51,150 +50,173 @@ SimpleRouter::handlePacket(const Buffer& packet, const std::string& inIface)
   {
     printf("Handle IPv4 packet\n");
     handleIpPacket(packet, ethernet_header);
-    printf("reveive a IPv4 header\n");
   }
 }
-
 
 void SimpleRouter::handleArpPacket(const Buffer &packet, struct ethernet_hdr &ether_hdr)
 {
-  struct arp_hdr arp_packet;
-  getArpPacket(packet, arp_packet);
+  struct arp_hdr arp_header;
+  getArpPacket(packet, arp_header);
 
-  if (arp_packet.arp_op==htons(arp_op_request)) // get an arp request massage
+  if (arp_header.arp_op==htons(arp_op_request)) // get an arp request massage
   {
     std::shared_ptr<ArpEntry> lookup_arp;
-    lookup_arp = m_arp.lookup(arp_packet.arp_sip);
+    lookup_arp = m_arp.lookup(arp_header.arp_sip);
     if(lookup_arp == NULL)
     {
+      printf("source ip is not in ARP map, insert new ARP entry\n");
       Buffer source_mac_addr = std::vector<unsigned char>(ETHER_ADDR_LEN, 0); //6 char, val is 0
       memcpy(&source_mac_addr[0], &packet[6], ETHER_ADDR_LEN);
-      m_arp.insertArpEntry(source_mac_addr, arp_packet.arp_sip);
+      m_arp.insertArpEntry(source_mac_addr, arp_header.arp_sip);
     }
-    const Interface *myInterface = findIfaceByIp(arp_packet.arp_tip);
-    if (myInterface != nullptr)
+    const Interface *router_Interface = findIfaceByIp(arp_header.arp_tip);
+    if (router_Interface != nullptr)
     {
       Buffer reply_arp_packet;
-      assembleArpInterfaceReplyPacket(reply_arp_packet, ether_hdr, arp_packet);
-      sendPacket(reply_arp_packet, myInterface->name);
-      printf("###########  send arp reply  ##############\n");
-      print_hdrs(reply_arp_packet);
+      assembleArpReplyPacket(reply_arp_packet, ether_hdr, arp_header);
+      sendPacket(reply_arp_packet, router_Interface->name);
+      printf("send arp reply\n");
+      // print_hdrs(reply_arp_packet);
     }
   }
-  else if(arp_packet.arp_op == htons(arp_op_reply)) // get an arp reply massage
+  else if(arp_header.arp_op == htons(arp_op_reply)) // get an arp reply massage
   {
     std::shared_ptr<simple_router::ArpEntry> lookup = NULL;
-    lookup = m_arp.lookup(arp_packet.arp_sip);//check ARP cache, if already there, discard else record mapping  
+    lookup = m_arp.lookup(arp_header.arp_sip);//check ARP cache, if already there, discard else record mapping  
     if (lookup == NULL){ //not found the mapping in cache 
       Buffer source_mac_addr = std::vector<unsigned char>(6, 0);
       memcpy(&source_mac_addr[0], &packet[6], ETHER_ADDR_LEN);
-      m_arp.insertArpEntry(source_mac_addr,arp_packet.arp_sip);
-      
-      //It will remove the request after sending all packets
-      m_arp.sendPendingPackets(arp_packet, arp_packet.arp_sip);
+      m_arp.insertArpEntry(source_mac_addr,arp_header.arp_sip);
+      m_arp.sendPendingPackets(arp_header, arp_header.arp_sip); //after sending packets the request will be removed
     }
     else 
-        printf("ARP reply's mapping already in cache, ARP packet drop\n");
+        printf("ARP reply already in cache, drop this arp packet\n");
   }
-
 }
+
 
 void SimpleRouter::handleIpPacket(const Buffer &packet, struct ethernet_hdr &ether_hdr)
 {
-  struct ip_hdr ip_packet;
+  struct ip_hdr ip_header;
   const Interface *myInterface;
   Buffer ip_packet_to_sent = packet;
-  getIpPacket(packet, ip_packet);  //should be get ip header
-  uint8_t TTL = ip_packet.ip_ttl - 1;
+  getIpPacket(packet, ip_header);  //should be get ip header
+  uint8_t TTL = ip_header.ip_ttl - 1;  //receive a ip packet and minus ttl by 1
 
-  if(m_arp.lookup(ip_packet.ip_src) == nullptr)
+  if(m_arp.lookup(ip_header.ip_src) == nullptr)
     {
-      printf("##############    source not in ARP chache\n");
+      printf("source not in ARP chache\n");
       Buffer source_mac = std::vector<unsigned char>(6, 0);
       memcpy(&source_mac[0], &packet[6], ETHER_ADDR_LEN);
-      m_arp.insertArpEntry(source_mac ,ip_packet.ip_src);
+      m_arp.insertArpEntry(source_mac ,ip_header.ip_src);
     }
     else
     {
-      printf("##################  source is in ARP \n");
+      printf("source is in ARP\n");
     }
 
-  printf("################  checksum is %x\n", cksum(&ip_packet, sizeof(ip_packet)));
-  if(cksum(&ip_packet, sizeof(ip_packet)) == 0xffff) //checksum is correct
+  if(cksum(&ip_header, sizeof(ip_header)) == 0xffff) //checksum is correct
   {
-    ip_packet.ip_ttl = TTL;
-    myInterface = findIfaceByIp(ip_packet.ip_dst);
+    ip_header.ip_ttl = TTL;
+    myInterface = findIfaceByIp(ip_header.ip_dst);
     if (myInterface == nullptr) // this packet is not dested to the router i.e datagram to be forwarded
     {
       if (TTL <= 0)  // send ICMP packet for ttl time exceeded 
       {
-        if(m_arp.lookup(ip_packet.ip_src) == nullptr)  // update arp table
+        if(m_arp.lookup(ip_header.ip_src) == nullptr)  // update arp table
         {
           Buffer source_mac = std::vector<unsigned char>(6, 0);
           memcpy(&source_mac[0], &packet[6], ETHER_ADDR_LEN);
-          m_arp.insertArpEntry(source_mac ,ip_packet.ip_src);
+          m_arp.insertArpEntry(source_mac ,ip_header.ip_src);
         }
         handleIcmpPacket(packet, ether_hdr, 1);
       }
-      else if(m_arp.lookup(ip_packet.ip_dst) != nullptr) // find dest ip in arp cache
+      else if(m_arp.lookup(ip_header.ip_dst) != nullptr) // find dest ip in arp cache
       {
         try{ 
-          ip_packet.ip_ttl = TTL;
-          RoutingTableEntry matched_entry = m_routingTable.lookup(ip_packet.ip_dst);
-          ip_packet.ip_sum = 0x0000; //zero the checksum and then calculate
-          ip_packet.ip_sum = cksum(&ip_packet,sizeof(ip_packet)); //update IP checksum                     
-          printf("in forwarding ttl is %x\n", ip_packet.ip_ttl);
+          ip_header.ip_ttl = TTL;
+          RoutingTableEntry matched_entry = m_routingTable.lookup(ip_header.ip_dst);
+          ip_header.ip_sum = 0x0000; 
+          ip_header.ip_sum = cksum(&ip_header,sizeof(ip_header)); //update IP checksum                     
+          printf("in forwarding packet the ttl is %x\n", ip_header.ip_ttl);
           std::shared_ptr<simple_router::ArpEntry> dest_mac;
           if (ipToString(matched_entry.dest).compare("0.0.0.0") == 0)
-             dest_mac = m_arp.lookup(ip_packet.ip_dst);  
+             dest_mac = m_arp.lookup(ip_header.ip_dst);  
           else
              dest_mac = m_arp.lookup(matched_entry.dest);
           
-          const Interface *interToForward = findIfaceByName(matched_entry.ifName);
-          memcpy(ether_hdr.ether_shost, &interToForward->addr[0], sizeof(ether_hdr.ether_shost)); //change source mac address to be iface mac
+          const Interface *interfaceToForward = findIfaceByName(matched_entry.ifName);
+          memcpy(ether_hdr.ether_shost, &interfaceToForward->addr[0], sizeof(ether_hdr.ether_shost)); //change source mac address to be iface mac
           memcpy(ether_hdr.ether_dhost, (dest_mac->mac).data(), sizeof(ether_hdr.ether_dhost)); //change dest mac address
 
-          assembleIPPacket(ip_packet_to_sent, ip_packet, ether_hdr); //update IP header, including MAC address
+          assembleIPPacket(ip_packet_to_sent, ip_header, ether_hdr); //update IP header, including MAC address
           sendPacket(ip_packet_to_sent, matched_entry.ifName); //forward packet
-          print_hdrs(ip_packet_to_sent);
+          // print_hdrs(ip_packet_to_sent);
         }
         catch (std::runtime_error& error){ //if not found in forwarding table
           printf("Packet discard because of no match in forwarding table\n");
         }
-        printf("==============packet sent out================\n");
+        printf("################  packet sent out  ################\n");
       }
       else //if no arp found in cache, packet must be pushed to queue
       {
-        Buffer dummy = std::vector<unsigned char>(6,0);
-        std::memcpy(&dummy[0],&ether_hdr.ether_dhost,sizeof(ether_hdr.ether_dhost));
-        const Buffer dummy_2 = dummy;
-        const Interface *myInter = findIfaceByMac(dummy_2);   
-        m_arp.queueRequest(ip_packet.ip_dst, packet, myInter->name); 
-        printf("Finish this function\n");
+        Buffer temp_dest_mac = std::vector<unsigned char>(6,0);
+        std::memcpy(&temp_dest_mac[0],&ether_hdr.ether_dhost,sizeof(ether_hdr.ether_dhost));
+        const Interface *myInterface = findIfaceByMac(temp_dest_mac);   
+        m_arp.queueRequest(ip_header.ip_dst, packet, myInterface->name); 
+        printf("no arp entry found in cache, queued the received packet\n");
       }
     }
     else // could be a ICMP packet
     {
-      if(ip_packet.ip_p == ip_protocol_icmp) // ICMP 
+      if(ip_header.ip_p == ip_protocol_icmp) // ICMP 
         handleIcmpPacket(packet, ether_hdr, 0);
-      else if(ip_packet.ip_p == 0x11)// protocol is 17 means the traceroute 
+      else if(ip_header.ip_p == 0x11)// protocol is 17 means the traceroute 
         handleIcmpPacket(packet, ether_hdr, 0);  // send a port unreachable ICMP massage
     }
   }
-  else
-  {
-    printf("Checksum is wrong\n");
-  }
-
+  else printf("Checksum is wrong\n");
 }
+
+void 
+SimpleRouter::assembleArpRequestPacket(Buffer &request_packet, const Interface* &sendIface, uint32_t &dest_ip)
+{ 
+  struct ethernet_hdr eth_header;
+  struct arp_hdr arp_header;
+
+  //Ethernet Frame 
+  memset(eth_header.ether_dhost, 255, ETHER_ADDR_LEN); //Broadcast
+  memcpy(eth_header.ether_shost, &sendIface->addr[0], ETHER_ADDR_LEN);
+  eth_header.ether_type = htons(ethertype_arp);
+  printf("Assembled Ethernet\n");
+  // print_hdr_eth((uint8_t*)&eth_header);
+
+  //Arp header
+  arp_header.arp_hrd = htons(arp_hrd_ethernet);
+  arp_header.arp_pro = htons(0x0800); // Protocol type(IPv4)
+  arp_header.arp_hln = 6;
+  arp_header.arp_pln = 4;
+  arp_header.arp_op = htons(arp_op_request);
+  memcpy(arp_header.arp_sha, &sendIface->addr[0], ETHER_ADDR_LEN);
+  memcpy(&arp_header.arp_sip, &sendIface->ip, sizeof(arp_header.arp_sip));
+  memset(arp_header.arp_tha, 255, ETHER_ADDR_LEN);
+  memcpy(&arp_header.arp_tip, &dest_ip, sizeof(arp_header.arp_tip));
+  printf("Assembled Arp\n");
+  // print_hdr_arp((uint8_t*)&arp_header);
+
+  //Assemble to packet and send
+  memcpy(&request_packet[0], &eth_header, sizeof(eth_header));
+  memcpy(&request_packet[14], &arp_header, sizeof(arp_header));
+}
+
 
 
 void 
 SimpleRouter::handleIcmpPacket(const Buffer &packet, struct ethernet_hdr &e_hdr, int time_exceed)
 {
-struct icmp_hdr icmp_packet;  // packet should be changed with header
-getIcmpPacket(packet, icmp_packet);
-if(icmp_packet.icmp_type == 8)//ICMP echo message, we need to send an echo reply message
+struct icmp_hdr icmp_header;  // packet should be changed with header
+getIcmpPacket(packet, icmp_header);
+if(icmp_header.icmp_type == 8)//ICMP echo message, we need to send an echo reply message
 {
   printf("received a ICMP echo message\n");
   uint16_t padd_cksum = 0x0000;
@@ -212,7 +234,7 @@ if(icmp_packet.icmp_type == 8)//ICMP echo message, we need to send an echo reply
       icmp_type = 0x0b; //set type with 11
     memcpy(&temp_packet[34], &icmp_type, sizeof(icmp_type));
     uint16_t icmp_sum = cksum(&temp_packet[34], (int)sizeof(temp_packet) - 34);
-    memcpy(&temp_packet[36], &icmp_sum, sizeof(icmp_packet.icmp_sum));
+    memcpy(&temp_packet[36], &icmp_sum, sizeof(icmp_header.icmp_sum));
 
     //IP layer
     //change dest ip
@@ -241,8 +263,8 @@ if(icmp_packet.icmp_type == 8)//ICMP echo message, we need to send an echo reply
     memcpy(&temp_packet[6], &e_hdr.ether_dhost[0], sizeof(e_hdr.ether_shost));
 
     sendPacket(temp_packet, myInterface->name);
-    printf("#############  send ICMP echo reply  ############# \n");
-    print_hdrs(temp_packet);
+    printf("send ICMP echo reply\n");
+    // print_hdrs(temp_packet);
   }
 
 }
@@ -318,8 +340,8 @@ else  // Do not have ICMP message, time exceeded or dest port unreachable
   memcpy(&temp_packet[6], &myInterface->addr[0], sizeof(e_hdr.ether_shost));
 
   sendPacket(temp_packet, myInterface->name);
-  printf("#############   send ICMP Timeout or unreachable packet  ###########\n");
-  print_hdrs(temp_packet);
+  printf("send ICMP Timeout or unreachable packet\n");
+  // print_hdrs(temp_packet);
 }
 
 }
