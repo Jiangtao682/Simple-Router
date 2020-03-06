@@ -158,7 +158,7 @@ void SimpleRouter::handleIpPacket(const Buffer &packet, struct ethernet_hdr &eth
         }
         printf("################  packet sent out  ################\n");
       }
-      else //if no arp found in cache, packet must be pushed to queue
+      else
       {
         Buffer temp_dest_mac = std::vector<unsigned char>(6,0);
         std::memcpy(&temp_dest_mac[0],&ether_hdr.ether_dhost,sizeof(ether_hdr.ether_dhost));
