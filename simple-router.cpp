@@ -131,40 +131,36 @@ void SimpleRouter::handleIpPacket(const Buffer &packet, struct ethernet_hdr &eth
         }
         handleIcmpPacket(packet, ether_hdr, 1);
       }
-      else if(m_arp.lookup(ip_header.ip_dst) != nullptr) // find dest ip in arp cache
+      else 
       {
-        try{ 
-          ip_header.ip_ttl = TTL;
-          RoutingTableEntry matched_entry = m_routingTable.lookup(ip_header.ip_dst);
+        try
+        {
+          RoutingTableEntry matched_routing_entry = m_routingTable.lookup(ip_header.ip_dst);
           ip_header.ip_sum = 0x0000; 
           ip_header.ip_sum = cksum(&ip_header,sizeof(ip_header)); //update IP checksum                     
-          printf("in forwarding packet the ttl is %x\n", ip_header.ip_ttl);
-          std::shared_ptr<simple_router::ArpEntry> dest_mac;
-          if (ipToString(matched_entry.dest).compare("0.0.0.0") == 0)
-             dest_mac = m_arp.lookup(ip_header.ip_dst);  
+          std::shared_ptr<simple_router::ArpEntry> dest_arp_entry;
+          dest_arp_entry = m_arp.lookup(matched_routing_entry.gw);
+          if(dest_arp_entry != nullptr)
+          {
+            const Interface *interfaceToForward = findIfaceByName(matched_routing_entry.ifName);
+            memcpy(ether_hdr.ether_shost, &interfaceToForward->addr[0], sizeof(ether_hdr.ether_shost)); //change source mac address to be iface mac
+            memcpy(ether_hdr.ether_dhost, (dest_arp_entry->mac).data(), sizeof(ether_hdr.ether_dhost)); //change dest mac address
+            assembleIPPacket(ip_packet_to_sent, ip_header, ether_hdr); //update IP header, including MAC address
+            sendPacket(ip_packet_to_sent, matched_routing_entry.ifName); //forward packet
+          }
           else
-             dest_mac = m_arp.lookup(matched_entry.dest);
-          
-          const Interface *interfaceToForward = findIfaceByName(matched_entry.ifName);
-          memcpy(ether_hdr.ether_shost, &interfaceToForward->addr[0], sizeof(ether_hdr.ether_shost)); //change source mac address to be iface mac
-          memcpy(ether_hdr.ether_dhost, (dest_mac->mac).data(), sizeof(ether_hdr.ether_dhost)); //change dest mac address
-
-          assembleIPPacket(ip_packet_to_sent, ip_header, ether_hdr); //update IP header, including MAC address
-          sendPacket(ip_packet_to_sent, matched_entry.ifName); //forward packet
-          // print_hdrs(ip_packet_to_sent);
+          {
+            Buffer temp_dest_mac = std::vector<unsigned char>(6,0);
+            std::memcpy(&temp_dest_mac[0],&ether_hdr.ether_dhost,sizeof(ether_hdr.ether_dhost));
+            const Interface *myInterface = findIfaceByMac(temp_dest_mac);   
+            m_arp.queueRequest(ip_header.ip_dst, packet, myInterface->name); 
+            printf("no arp entry found in cache, queued the received packet\n");
+          }
         }
-        catch (std::runtime_error& error){ //if not found in forwarding table
+        catch (std::runtime_error& error)//if not found in forwarding table
+        { 
           printf("Packet discard because of no match in forwarding table\n");
         }
-        printf("################  packet sent out  ################\n");
-      }
-      else
-      {
-        Buffer temp_dest_mac = std::vector<unsigned char>(6,0);
-        std::memcpy(&temp_dest_mac[0],&ether_hdr.ether_dhost,sizeof(ether_hdr.ether_dhost));
-        const Interface *myInterface = findIfaceByMac(temp_dest_mac);   
-        m_arp.queueRequest(ip_header.ip_dst, packet, myInterface->name); 
-        printf("no arp entry found in cache, queued the received packet\n");
       }
     }
     else // could be a ICMP packet
