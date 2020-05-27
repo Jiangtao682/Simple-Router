@@ -27,16 +27,6 @@ This implementation is based on the original code for Stanford CS144 lab3 (https
 
 ## Report
 
-###### Group members:
-
-**Jiangtao Chen, UID: 305429047**
-
-Jiangtao Chen wrote the code in simple-router.cpp, handled the logic of the ICPM protocol.
-
-**Yunhao Ji, UID: 605301740**
-
-Yunhao Ji wrote the code of ARP protocol and handled the logic of the routing table lookup and ARP cache lookup.
-
 ## High level Design
 
 This assignment runs on the top of Mininet that build by Stanford. Following the the emulate topology of a single network, we are required to implement the logic of a simple router. In this test, we mainly designed four parts codes: handle Ethernet frames, handle ARP packets, handle IPv4 packets and handle ICMP packets.
